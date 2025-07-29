@@ -1,0 +1,67 @@
+from django.db import models
+
+# Create your models here.
+from django.db import models
+from django.utils import timezone
+
+class Book(models.Model):
+    """图书模型"""
+    title = models.CharField(max_length=200, verbose_name="书名")
+    author = models.CharField(max_length=100, verbose_name="作者")
+    isbn = models.CharField(max_length=13, unique=True, verbose_name="ISBN")
+    publisher = models.CharField(max_length=100, verbose_name="出版社")
+    publication_date = models.DateField(verbose_name="出版日期")
+    category = models.CharField(max_length=50, verbose_name="类别")
+    description = models.TextField(blank=True, null=True, verbose_name="描述")
+    total_copies = models.IntegerField(default=1, verbose_name="总藏书量")
+    available_copies = models.IntegerField(default=1, verbose_name="可借数量")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        verbose_name = "图书"
+        verbose_name_plural = "图书"
+        ordering = ['-created_at']
+
+
+class Reader(models.Model):
+    """读者模型"""
+    name = models.CharField(max_length=100, verbose_name="姓名")
+    reader_id = models.CharField(max_length=20, unique=True, verbose_name="读者ID")
+    email = models.EmailField(blank=True, null=True, verbose_name="邮箱")
+    phone = models.CharField(max_length=20, blank=True, null=True, verbose_name="电话")
+    address = models.TextField(blank=True, null=True, verbose_name="地址")
+    registration_date = models.DateField(default=timezone.now, verbose_name="注册日期")
+    is_active = models.BooleanField(default=True, verbose_name="是否有效")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    def __str__(self):
+        return f"{self.name} ({self.reader_id})"
+
+    class Meta:
+        verbose_name = "读者"
+        verbose_name_plural = "读者"
+        ordering = ['name']
+
+
+class BorrowRecord(models.Model):
+    """借阅记录模型"""
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='borrow_records', verbose_name="图书")
+    reader = models.ForeignKey(Reader, on_delete=models.CASCADE, related_name='borrow_records', verbose_name="读者")
+    borrow_date = models.DateTimeField(default=timezone.now, verbose_name="借阅日期")
+    due_date = models.DateTimeField(verbose_name="应还日期")
+    return_date = models.DateTimeField(blank=True, null=True, verbose_name="归还日期")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    def __str__(self):
+        return f"{self.reader.name} 借阅 {self.book.title}"
+
+    class Meta:
+        verbose_name = "借阅记录"
+        verbose_name_plural = "借阅记录"
+        ordering = ['-borrow_date']

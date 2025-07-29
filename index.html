@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图书馆管理系统</title>
+    <!-- 引入外部资源 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/vue-router@4/dist/vue-router.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+
+    <!-- 配置Tailwind自定义颜色 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFC9',
+                        accent: '#722ED1',
+                        neutral: '#86909C',
+                        'neutral-light': '#F2F3F5',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .sidebar-item {
+                @apply flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-primary/10 hover:text-primary rounded-lg transition-all duration-200;
+            }
+            .sidebar-item.active {
+                @apply bg-primary/10 text-primary font-medium;
+            }
+            .btn-primary {
+                @apply bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg transition-all duration-200;
+            }
+            .btn-secondary {
+                @apply bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg transition-all duration-200;
+            }
+            .btn-danger {
+                @apply bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all duration-200;
+            }
+            .form-input {
+                @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary;
+            }
+            .card {
+                @apply bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden;
+            }
+            .table-row-hover {
+                @apply hover:bg-gray-50 transition-colors duration-150;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans text-gray-800 min-h-screen flex flex-col">
+    <div id="app">
+        <router-view></router-view>
+    </div>
+
+    <script>
+        // 配置Axios
+        axios.defaults.baseURL = 'http://localhost:8000/api';
+        axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+        // 添加响应拦截器处理错误
+        axios.interceptors.response.use(
+            response => response,
+            error => {
+                console.error('API请求错误:', error);
+                alert('操作失败: ' + (error.response?.data?.error || '未知错误'));
+                return Promise.reject(error);
+            }
+        );
+
+        // 定义组件
+        const Home = {
+            template: `
+                <div class="flex flex-col h-screen">
+                    <!-- 顶部导航栏 -->
+                    <header class="bg-white shadow-sm border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i class="fa fa-book text-primary text-2xl"></i>
+                            <h1 class="text-xl font-bold text-gray-800">图书馆管理系统</h1>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <span class="text-gray-600">管理员</span>
+                            <i class="fa fa-user-circle text-xl text-gray-500"></i>
+                        </div>
+                    </header>
+
+                    <!-- 主内容区 -->
+                    <div class="flex flex-1 overflow-hidden">
+                        <!-- 侧边栏 -->
+                        <aside class="w-64 bg-white border-r border-gray-200 p-4 flex-shrink-0">
+                            <nav class="space-y-1">
+                                <router-link to="/books" class="sidebar-item" :class="{ 'active': $route.path === '/books' }">
+                                    <i class="fa fa-book"></i>
+                                    <span>图书管理</span>
+                                </router-link>
+                                <router-link to="/readers" class="sidebar-item" :class="{ 'active': $route.path === '/readers' }">
+                                    <i class="fa fa-users"></i>
+                                    <span>读者管理</span>
+                                </router-link>
+                                <router-link to="/borrows" class="sidebar-item" :class="{ 'active': $route.path === '/borrows' }">
+                                    <i class="fa fa-exchange"></i>
+                                    <span>借阅管理</span>
+                                </router-link>
+                            </nav>
+                        </aside>
+
+                        <!-- 内容区域 -->
+                        <main class="flex-1 overflow-y-auto p-6 bg-gray-50">
+                            <router-view></router-view>
+                        </main>
+                    </div>
+                </div>
+            `
+        };
+
+        // 图书管理组件
+        const Books = {
+            data() {
+                return {
+                    books: [],
+                    loading: false,
+                    currentPage: 1,
+                    totalPages: 1,
+                    searchTerm: '',
+                    currentBook: null,
+                    showAddModal: false,
+                    showEditModal: false,
+                    showDeleteModal: false,
+                    bookForm: {
+                        title: '',
+                        author: '',
+                        isbn: '',
+                        publisher: '',
+                        publication_date: '',
+                        category: '',
+                        description: '',
+                        total_copies: 1,
+                        available_copies: 1
+                    },
+                    categories: ['文学', '科技', '历史', '哲学', '艺术', '计算机', '其他']
+                }
+            },
+            methods: {
+                fetchBooks() {
+                    this.loading = true;
+                    let url = `/books/?page=${this.currentPage}`;
+                    if (this.searchTerm) {
+                        url += `&search=${this.searchTerm}`;
+                    }
+
+                    axios.get(url)
+                        .then(response => {
+                            this.books = response.data.results;
+                            this.totalPages = Math.ceil(response.data.count / 10);
+                            this.loading = false;
+                        })
+                        .catch(() => {
+                            this.loading = false;
+                        });
+                },
+                resetForm() {
+                    this.bookForm = {
+                        title: '',
+                        author: '',
+                        isbn: '',
+                        publisher: '',
+                        publication_date: '',
+                        category: '',
+                        description: '',
+                        total_copies: 1,
+                        available_copies: 1
+                    };
+                },
+                addBook() {
+                    axios.post('/books/', this.bookForm)
+                        .then(() => {
+                            this.showAddModal = false;
+                            this.resetForm();
+                            this.fetchBooks();
+                            alert('图书添加成功');
+                        });
+                },
+                editBook(book) {
+                    this.currentBook = book;
+                    this.bookForm = { ...book };
+                    this.showEditModal = true;
+                },
+                updateBook() {
+                    axios.put(`/books/${this.currentBook.id}/`, this.bookForm)
+                        .then(() => {
+                            this.showEditModal = false;
+                            this.fetchBooks();
+                            alert('图书更新成功');
+                        });
+                },
+                confirmDelete(book) {
+                    this.currentBook = book;
+                    this.showDeleteModal = true;
+                },
+                deleteBook() {
+                    axios.delete(`/books/${this.currentBook.id}/`)
+                        .then(() => {
+                            this.showDeleteModal = false;
+                            this.fetchBooks();
+                            alert('图书删除成功');
+                        });
+                },
+                goToPage(page) {
+                    if (page >= 1 && page <= this.totalPages) {
+                        this.currentPage = page;
+                        this.fetchBooks();
+                    }
+                },
+                searchBooks() {
+                    this.currentPage = 1;
+                    this.fetchBooks();
+                }
+            },
+            mounted() {
+                this.fetchBooks();
+            },
+            template: `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">图书管理</h2>
+                        <button @click="showAddModal = true; resetForm()" class="btn-primary">
+                            <i class="fa fa-plus mr-2"></i>添加图书
+                        </button>
+                    </div>
+
+                    <!-- 搜索栏 -->
+                    <div class="mb-6">
+                        <div class="flex gap-3">
+                            <input
+                                v-model="searchTerm"
+                                @keyup.enter="searchBooks"
+                                type="text"
+                                placeholder="搜索书名、作者或ISBN..."
+                                class="form-input"
+                            >
+                            <button @click="searchBooks" class="btn-primary">
+                                <i class="fa fa-search mr-1"></i>搜索
+                            </button>
+                            <button @click="searchTerm = ''; searchBooks()" class="btn-secondary">
+                                重置
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 图书列表 -->
+                    <div class="card">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">书名</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">作者</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ISBN</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">类别</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">可借数量</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-if="loading">
+                                        <td colspan="7" class="px-6 py-10 text-center text-gray-500">
+                                            <i class="fa fa-spinner fa-spin mr-2"></i>加载中...
+                                        </td>
+                                    </tr>
+                                    <tr v-else-if="books.length === 0">
+                                        <td colspan="7" class="px-6 py-10 text-center text-gray-500">
+                                            没有找到图书数据
+                                        </td>
+                                    </tr>
+                                    <tr v-for="book in books" :key="book.id" class="table-row-hover">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ book.id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ book.title }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ book.author }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ book.isbn }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ book.category }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <span :class="book.available_copies > 0 ? 'text-green-600' : 'text-red-600'">
+                                                {{ book.available_copies }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button @click="editBook(book)" class="text-primary hover:text-primary/80 mr-3">
+                                                <i class="fa fa-pencil"></i> 编辑
+                                            </button>
+                                            <button @click="confirmDelete(book)" class="text-red-500 hover:text-red-600">
+                                                <i class="fa fa-trash"></i> 删除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                            <div class="text-sm text-gray-700">
+                                显示 {{ (currentPage - 1) * 10 + 1 }} 到 {{ Math.min(currentPage * 10, books.length + (currentPage - 1) * 10) }} 条，共 {{ books.length > 0 ? books[0].count : 0 }} 条
+                            </div>
+                            <div class="flex space-x-2">
+                                <button
+                                    @click="goToPage(currentPage - 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === 1"
+                                >
+                                    上一页
+                                </button>
+                                <button
+                                    @click="goToPage(currentPage + 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === totalPages"
+                                >
+                                    下一页
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 添加图书模态框 -->
+                    <div v-if="showAddModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">添加新图书</h3>
+                                <button @click="showAddModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">书名 *</label>
+                                        <input v-model="bookForm.title" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">作者 *</label>
+                                        <input v-model="bookForm.author" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">ISBN *</label>
+                                        <input v-model="bookForm.isbn" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">出版社 *</label>
+                                        <input v-model="bookForm.publisher" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">出版日期 *</label>
+                                        <input v-model="bookForm.publication_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">类别 *</label>
+                                        <select v-model="bookForm.category" class="form-input" required>
+                                            <option value="">请选择类别</option>
+                                            <option v-for="category in categories" :value="category">{{ category }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">总藏书量 *</label>
+                                        <input v-model.number="bookForm.total_copies" type="number" min="1" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">可借数量 *</label>
+                                        <input v-model.number="bookForm.available_copies" type="number" min="0" class="form-input" required>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                                    <textarea v-model="bookForm.description" rows="3" class="form-input"></textarea>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showAddModal = false" class="btn-secondary">取消</button>
+                                <button @click="addBook" class="btn-primary">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 编辑图书模态框 -->
+                    <div v-if="showEditModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">编辑图书</h3>
+                                <button @click="showEditModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">书名 *</label>
+                                        <input v-model="bookForm.title" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">作者 *</label>
+                                        <input v-model="bookForm.author" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">ISBN *</label>
+                                        <input v-model="bookForm.isbn" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">出版社 *</label>
+                                        <input v-model="bookForm.publisher" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">出版日期 *</label>
+                                        <input v-model="bookForm.publication_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">类别 *</label>
+                                        <select v-model="bookForm.category" class="form-input" required>
+                                            <option value="">请选择类别</option>
+                                            <option v-for="category in categories" :value="category">{{ category }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">总藏书量 *</label>
+                                        <input v-model.number="bookForm.total_copies" type="number" min="1" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">可借数量 *</label>
+                                        <input v-model.number="bookForm.available_copies" type="number" min="0" class="form-input" required>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                                    <textarea v-model="bookForm.description" rows="3" class="form-input"></textarea>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showEditModal = false" class="btn-secondary">取消</button>
+                                <button @click="updateBook" class="btn-primary">更新</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 删除确认模态框 -->
+                    <div v-if="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-md">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-800">确认删除</h3>
+                            </div>
+                            <div class="p-6">
+                                <p class="text-gray-700">
+                                    您确定要删除图书《{{ currentBook?.title }}》吗？此操作不可撤销。
+                                </p>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showDeleteModal = false" class="btn-secondary">取消</button>
+                                <button @click="deleteBook" class="btn-danger">确认删除</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `
+        };
+
+        // 读者管理组件
+        const Readers = {
+            data() {
+                return {
+                    readers: [],
+                    loading: false,
+                    currentPage: 1,
+                    totalPages: 1,
+                    searchTerm: '',
+                    currentReader: null,
+                    showAddModal: false,
+                    showEditModal: false,
+                    showDeleteModal: false,
+                    readerForm: {
+                        name: '',
+                        reader_id: '',
+                        email: '',
+                        phone: '',
+                        address: '',
+                        registration_date: '',
+                        is_active: true
+                    }
+                }
+            },
+            methods: {
+                fetchReaders() {
+                    this.loading = true;
+                    let url = `/readers/?page=${this.currentPage}`;
+                    if (this.searchTerm) {
+                        url += `&search=${this.searchTerm}`;
+                    }
+
+                    axios.get(url)
+                        .then(response => {
+                            this.readers = response.data.results;
+                            this.totalPages = Math.ceil(response.data.count / 10);
+                            this.loading = false;
+                        })
+                        .catch(() => {
+                            this.loading = false;
+                        });
+                },
+                resetForm() {
+                    const today = new Date().toISOString().split('T')[0];
+                    this.readerForm = {
+                        name: '',
+                        reader_id: '',
+                        email: '',
+                        phone: '',
+                        address: '',
+                        registration_date: today,
+                        is_active: true
+                    };
+                },
+                addReader() {
+                    axios.post('/readers/', this.readerForm)
+                        .then(() => {
+                            this.showAddModal = false;
+                            this.resetForm();
+                            this.fetchReaders();
+                            alert('读者添加成功');
+                        });
+                },
+                editReader(reader) {
+                    this.currentReader = reader;
+                    this.readerForm = { ...reader };
+                    // 格式化日期
+                    if (this.readerForm.registration_date) {
+                        this.readerForm.registration_date = this.readerForm.registration_date.split('T')[0];
+                    }
+                    this.showEditModal = true;
+                },
+                updateReader() {
+                    axios.put(`/readers/${this.currentReader.id}/`, this.readerForm)
+                        .then(() => {
+                            this.showEditModal = false;
+                            this.fetchReaders();
+                            alert('读者更新成功');
+                        });
+                },
+                confirmDelete(reader) {
+                    this.currentReader = reader;
+                    this.showDeleteModal = true;
+                },
+                deleteReader() {
+                    axios.delete(`/readers/${this.currentReader.id}/`)
+                        .then(() => {
+                            this.showDeleteModal = false;
+                            this.fetchReaders();
+                            alert('读者删除成功');
+                        });
+                },
+                goToPage(page) {
+                    if (page >= 1 && page <= this.totalPages) {
+                        this.currentPage = page;
+                        this.fetchReaders();
+                    }
+                },
+                searchReaders() {
+                    this.currentPage = 1;
+                    this.fetchReaders();
+                }
+            },
+            mounted() {
+                this.resetForm();
+                this.fetchReaders();
+            },
+            template: `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">读者管理</h2>
+                        <button @click="showAddModal = true; resetForm()" class="btn-primary">
+                            <i class="fa fa-plus mr-2"></i>添加读者
+                        </button>
+                    </div>
+
+                    <!-- 搜索栏 -->
+                    <div class="mb-6">
+                        <div class="flex gap-3">
+                            <input
+                                v-model="searchTerm"
+                                @keyup.enter="searchReaders"
+                                type="text"
+                                placeholder="搜索姓名、读者ID或邮箱..."
+                                class="form-input"
+                            >
+                            <button @click="searchReaders" class="btn-primary">
+                                <i class="fa fa-search mr-1"></i>搜索
+                            </button>
+                            <button @click="searchTerm = ''; searchReaders()" class="btn-secondary">
+                                重置
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 读者列表 -->
+                    <div class="card">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">姓名</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">读者ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">邮箱</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">电话</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">注册日期</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-if="loading">
+                                        <td colspan="8" class="px-6 py-10 text-center text-gray-500">
+                                            <i class="fa fa-spinner fa-spin mr-2"></i>加载中...
+                                        </td>
+                                    </tr>
+                                    <tr v-else-if="readers.length === 0">
+                                        <td colspan="8" class="px-6 py-10 text-center text-gray-500">
+                                            没有找到读者数据
+                                        </td>
+                                    </tr>
+                                    <tr v-for="reader in readers" :key="reader.id" class="table-row-hover">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ reader.id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ reader.name }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ reader.reader_id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ reader.email || '-' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ reader.phone || '-' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {{ new Date(reader.registration_date).toLocaleDateString() }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span v-if="reader.is_active" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                有效
+                                            </span>
+                                            <span v-else class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                                无效
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button @click="editReader(reader)" class="text-primary hover:text-primary/80 mr-3">
+                                                <i class="fa fa-pencil"></i> 编辑
+                                            </button>
+                                            <button @click="confirmDelete(reader)" class="text-red-500 hover:text-red-600">
+                                                <i class="fa fa-trash"></i> 删除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                            <div class="text-sm text-gray-700">
+                                显示 {{ (currentPage - 1) * 10 + 1 }} 到 {{ Math.min(currentPage * 10, readers.length + (currentPage - 1) * 10) }} 条，共 {{ readers.length > 0 ? readers[0].count : 0 }} 条
+                            </div>
+                            <div class="flex space-x-2">
+                                <button
+                                    @click="goToPage(currentPage - 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === 1"
+                                >
+                                    上一页
+                                </button>
+                                <button
+                                    @click="goToPage(currentPage + 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === totalPages"
+                                >
+                                    下一页
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 添加读者模态框 -->
+                    <div v-if="showAddModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">添加新读者</h3>
+                                <button @click="showAddModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">姓名 *</label>
+                                        <input v-model="readerForm.name" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">读者ID *</label>
+                                        <input v-model="readerForm.reader_id" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                                        <input v-model="readerForm.email" type="email" class="form-input">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">电话</label>
+                                        <input v-model="readerForm.phone" type="text" class="form-input">
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">地址</label>
+                                        <textarea v-model="readerForm.address" rows="2" class="form-input"></textarea>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">注册日期 *</label>
+                                        <input v-model="readerForm.registration_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <input
+                                            v-model="readerForm.is_active"
+                                            type="checkbox"
+                                            id="is_active"
+                                            class="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                                        >
+                                        <label for="is_active" class="ml-2 block text-sm text-gray-700">
+                                            账号有效
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showAddModal = false" class="btn-secondary">取消</button>
+                                <button @click="addReader" class="btn-primary">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 编辑读者模态框 -->
+                    <div v-if="showEditModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">编辑读者</h3>
+                                <button @click="showEditModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">姓名 *</label>
+                                        <input v-model="readerForm.name" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">读者ID *</label>
+                                        <input v-model="readerForm.reader_id" type="text" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                                        <input v-model="readerForm.email" type="email" class="form-input">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">电话</label>
+                                        <input v-model="readerForm.phone" type="text" class="form-input">
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">地址</label>
+                                        <textarea v-model="readerForm.address" rows="2" class="form-input"></textarea>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">注册日期 *</label>
+                                        <input v-model="readerForm.registration_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <input
+                                            v-model="readerForm.is_active"
+                                            type="checkbox"
+                                            id="edit_is_active"
+                                            class="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                                        >
+                                        <label for="edit_is_active" class="ml-2 block text-sm text-gray-700">
+                                            账号有效
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showEditModal = false" class="btn-secondary">取消</button>
+                                <button @click="updateReader" class="btn-primary">更新</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 删除确认模态框 -->
+                    <div v-if="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-md">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-800">确认删除</h3>
+                            </div>
+                            <div class="p-6">
+                                <p class="text-gray-700">
+                                    您确定要删除读者 {{ currentReader?.name }}（{{ currentReader?.reader_id }}）吗？此操作不可撤销。
+                                </p>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showDeleteModal = false" class="btn-secondary">取消</button>
+                                <button @click="deleteReader" class="btn-danger">确认删除</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `
+        };
+
+        // 借阅管理组件
+        const Borrows = {
+            data() {
+                return {
+                    borrows: [],
+                    books: [],
+                    readers: [],
+                    loading: false,
+                    currentPage: 1,
+                    totalPages: 1,
+                    currentBorrow: null,
+                    showAddModal: false,
+                    showEditModal: false,
+                    showDeleteModal: false,
+                    showReturnModal: false,
+                    borrowForm: {
+                        book: '',
+                        reader: '',
+                        borrow_date: '',
+                        due_date: ''
+                    }
+                }
+            },
+            methods: {
+                fetchBorrows() {
+                    this.loading = true;
+                    axios.get(`/borrows/?page=${this.currentPage}`)
+                        .then(response => {
+                            this.borrows = response.data.results;
+                            this.totalPages = Math.ceil(response.data.count / 10);
+                            this.loading = false;
+                        })
+                        .catch(() => {
+                            this.loading = false;
+                        });
+                },
+                fetchBooks() {
+                    axios.get('/books/')
+                        .then(response => {
+                            this.books = response.data.results;
+                        });
+                },
+                fetchReaders() {
+                    axios.get('/readers/')
+                        .then(response => {
+                            this.readers = response.data.results;
+                        });
+                },
+                resetForm() {
+                    const today = new Date().toISOString().split('T')[0];
+                    // 默认借阅期限为30天
+                    const dueDate = new Date();
+                    dueDate.setDate(dueDate.getDate() + 30);
+                    const formattedDueDate = dueDate.toISOString().split('T')[0];
+
+                    this.borrowForm = {
+                        book: '',
+                        reader: '',
+                        borrow_date: today,
+                        due_date: formattedDueDate
+                    };
+                },
+                addBorrow() {
+                    axios.post('/borrows/', this.borrowForm)
+                        .then(() => {
+                            this.showAddModal = false;
+                            this.resetForm();
+                            this.fetchBorrows();
+                            alert('借阅记录添加成功');
+                        });
+                },
+                editBorrow(borrow) {
+                    this.currentBorrow = borrow;
+                    this.borrowForm = {
+                        ...borrow,
+                        borrow_date: borrow.borrow_date.split('T')[0],
+                        due_date: borrow.due_date.split('T')[0]
+                    };
+                    this.showEditModal = true;
+                },
+                updateBorrow() {
+                    axios.put(`/borrows/${this.currentBorrow.id}/`, this.borrowForm)
+                        .then(() => {
+                            this.showEditModal = false;
+                            this.fetchBorrows();
+                            alert('借阅记录更新成功');
+                        });
+                },
+                confirmDelete(borrow) {
+                    this.currentBorrow = borrow;
+                    this.showDeleteModal = true;
+                },
+                deleteBorrow() {
+                    axios.delete(`/borrows/${this.currentBorrow.id}/`)
+                        .then(() => {
+                            this.showDeleteModal = false;
+                            this.fetchBorrows();
+                            alert('借阅记录删除成功');
+                        });
+                },
+                confirmReturn(borrow) {
+                    this.currentBorrow = borrow;
+                    this.showReturnModal = true;
+                },
+                returnBook() {
+                    axios.post(`/borrows/${this.currentBorrow.id}/return_book/`)
+                        .then(() => {
+                            this.showReturnModal = false;
+                            this.fetchBorrows();
+                            alert('还书成功');
+                        });
+                },
+                goToPage(page) {
+                    if (page >= 1 && page <= this.totalPages) {
+                        this.currentPage = page;
+                        this.fetchBorrows();
+                    }
+                }
+            },
+            mounted() {
+                this.resetForm();
+                this.fetchBorrows();
+                this.fetchBooks();
+                this.fetchReaders();
+            },
+            template: `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">借阅管理</h2>
+                        <button @click="showAddModal = true; resetForm()" class="btn-primary">
+                            <i class="fa fa-plus mr-2"></i>添加借阅
+                        </button>
+                    </div>
+
+                    <!-- 借阅列表 -->
+                    <div class="card">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">图书</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">读者</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">借阅日期</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">应还日期</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">归还日期</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-if="loading">
+                                        <td colspan="8" class="px-6 py-10 text-center text-gray-500">
+                                            <i class="fa fa-spinner fa-spin mr-2"></i>加载中...
+                                        </td>
+                                    </tr>
+                                    <tr v-else-if="borrows.length === 0">
+                                        <td colspan="8" class="px-6 py-10 text-center text-gray-500">
+                                            没有找到借阅记录
+                                        </td>
+                                    </tr>
+                                    <tr v-for="borrow in borrows" :key="borrow.id" class="table-row-hover">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ borrow.id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ borrow.book_title }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ borrow.reader_name }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {{ new Date(borrow.borrow_date).toLocaleDateString() }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {{ new Date(borrow.due_date).toLocaleDateString() }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {{ borrow.return_date ? new Date(borrow.return_date).toLocaleDateString() : '-' }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span v-if="borrow.return_date" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                                已归还
+                                            </span>
+                                            <span v-else-if="new Date(borrow.due_date) < new Date()" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                                已逾期
+                                            </span>
+                                            <span v-else class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                借阅中
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button
+                                                @click="confirmReturn(borrow)"
+                                                class="text-green-600 hover:text-green-700 mr-3"
+                                                v-if="!borrow.return_date"
+                                            >
+                                                <i class="fa fa-check"></i> 还书
+                                            </button>
+                                            <button
+                                                @click="editBorrow(borrow)"
+                                                class="text-primary hover:text-primary/80 mr-3"
+                                                v-if="!borrow.return_date"
+                                            >
+                                                <i class="fa fa-pencil"></i> 编辑
+                                            </button>
+                                            <button @click="confirmDelete(borrow)" class="text-red-500 hover:text-red-600">
+                                                <i class="fa fa-trash"></i> 删除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                            <div class="text-sm text-gray-700">
+                                显示 {{ (currentPage - 1) * 10 + 1 }} 到 {{ Math.min(currentPage * 10, borrows.length + (currentPage - 1) * 10) }} 条，共 {{ borrows.length > 0 ? borrows[0].count : 0 }} 条
+                            </div>
+                            <div class="flex space-x-2">
+                                <button
+                                    @click="goToPage(currentPage - 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === 1"
+                                >
+                                    上一页
+                                </button>
+                                <button
+                                    @click="goToPage(currentPage + 1)"
+                                    class="btn-secondary"
+                                    :disabled="currentPage === totalPages"
+                                >
+                                    下一页
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 添加借阅模态框 -->
+                    <div v-if="showAddModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">添加借阅记录</h3>
+                                <button @click="showAddModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">图书 *</label>
+                                        <select v-model="borrowForm.book" class="form-input" required>
+                                            <option value="">请选择图书</option>
+                                            <option v-for="book in books" :value="book.id">
+                                                {{ book.title }} (可借: {{ book.available_copies }})
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">读者 *</label>
+                                        <select v-model="borrowForm.reader" class="form-input" required>
+                                            <option value="">请选择读者</option>
+                                            <option v-for="reader in readers" :value="reader.id">
+                                                {{ reader.name }} ({{ reader.reader_id }})
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">借阅日期 *</label>
+                                        <input v-model="borrowForm.borrow_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">应还日期 *</label>
+                                        <input v-model="borrowForm.due_date" type="date" class="form-input" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showAddModal = false" class="btn-secondary">取消</button>
+                                <button @click="addBorrow" class="btn-primary">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 编辑借阅模态框 -->
+                    <div v-if="showEditModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-2xl">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">编辑借阅记录</h3>
+                                <button @click="showEditModal = false" class="text-gray-500 hover:text-gray-700">
+                                    <i class="fa fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">图书</label>
+                                        <select v-model="borrowForm.book" class="form-input" disabled>
+                                            <option v-for="book in books" :value="book.id">
+                                                {{ book.title }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">读者</label>
+                                        <select v-model="borrowForm.reader" class="form-input" disabled>
+                                            <option v-for="reader in readers" :value="reader.id">
+                                                {{ reader.name }} ({{ reader.reader_id }})
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">借阅日期 *</label>
+                                        <input v-model="borrowForm.borrow_date" type="date" class="form-input" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">应还日期 *</label>
+                                        <input v-model="borrowForm.due_date" type="date" class="form-input" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showEditModal = false" class="btn-secondary">取消</button>
+                                <button @click="updateBorrow" class="btn-primary">更新</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 还书确认模态框 -->
+                    <div v-if="showReturnModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-md">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-800">确认还书</h3>
+                            </div>
+                            <div class="p-6">
+                                <p class="text-gray-700">
+                                    您确定要办理《{{ currentBorrow?.book_title }}》的还书手续吗？
+                                </p>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showReturnModal = false" class="btn-secondary">取消</button>
+                                <button @click="returnBook" class="btn-primary">确认还书</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 删除确认模态框 -->
+                    <div v-if="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white rounded-xl w-full max-w-md">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-800">确认删除</h3>
+                            </div>
+                            <div class="p-6">
+                                <p class="text-gray-700">
+                                    您确定要删除这条借阅记录吗？此操作不可撤销。
+                                </p>
+                            </div>
+                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                                <button @click="showDeleteModal = false" class="btn-secondary">取消</button>
+                                <button @click="deleteBorrow" class="btn-danger">确认删除</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `
+        };
+
+        // 配置路由
+        const routes = [
+            {
+                path: '/',
+                component: Home,
+                children: [
+                    { path: '', redirect: '/books' },
+                    { path: 'books', component: Books },
+                    { path: 'readers', component: Readers },
+                    { path: 'borrows', component: Borrows }
+                ]
+            }
+        ];
+
+        const router = VueRouter.createRouter({
+            history: VueRouter.createWebHashHistory(),
+            routes
+        });
+
+        // 创建并挂载根实例
+        const { createApp } = Vue;
+        createApp({})
+            .use(router)
+            .mount('#app');
+    </script>
