@@ -1,250 +1,130 @@
-from django.shortcuts import render
-
-# Create your views here.
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils import timezone
 from django.core.cache import cache
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
-from django.views.decorators.vary import vary_on_cookie
-import json
-
 from .models import Book, Reader, BorrowRecord
-from .serializers import BookSerializer, ReaderSerializer, BorrowRecordSerializer
-from django.conf import settings
-
-# Redis缓存前缀
-CACHE_PREFIX = 'library:'
+from .serializers import (
+    BookSerializer, ReaderSerializer, BorrowRecordSerializer,
+    BorrowReturnSerializer
+)
 
 
 class BookViewSet(viewsets.ModelViewSet):
-    """图书视图集，提供CRUD操作"""
+    """
+    图书视图集，提供图书的CRUD操作
+    支持搜索和缓存功能
+    """
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'publisher']
-    search_fields = ['title', 'author', 'isbn']
-    ordering_fields = ['title', 'publication_date', 'created_at']
+    filterset_fields = ['category', 'publisher']  # 支持按类别和出版社过滤
+    search_fields = ['title', 'author', 'isbn']  # 支持按书名、作者、ISBN搜索
+    ordering_fields = ['title', 'publication_date', 'created_at']  # 支持排序的字段
 
-    def list(self, request, *args, **kwargs):
-        """列表查询，使用Redis缓存结果"""
-        cache_key = f"{CACHE_PREFIX}books:list"
+    def get_queryset(self):
+        """
+        重写查询集方法，添加缓存功能
+        热门查询结果会被缓存，提高性能
+        """
+        # 获取查询参数
+        search = self.request.query_params.get('search', '')
+        category = self.request.query_params.get('category', '')
+        ordering = self.request.query_params.get('ordering', '')
 
-        # 检查缓存
-        cached_data = settings.REDIS_CONNECTION.get(cache_key)
-        if cached_data:
-            return Response(json.loads(cached_data))
+        # 生成缓存键
+        cache_key = f"books_search_{search}_category_{category}_order_{ordering}"
 
-        # 缓存未命中，查询数据库
-        response = super().list(request, *args, **kwargs)
+        # 尝试从缓存获取数据
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
 
-        # 存入缓存，设置过期时间10分钟
-        settings.REDIS_CONNECTION.setex(cache_key, 600, json.dumps(response.data))
+        # 缓存未命中，从数据库查询
+        queryset = super().get_queryset()
 
-        return response
-
-    def retrieve(self, request, *args, **kwargs):
-        """详情查询，使用Redis缓存结果"""
-        book_id = kwargs.get('pk')
-        cache_key = f"{CACHE_PREFIX}books:{book_id}"
-
-        # 检查缓存
-        cached_data = settings.REDIS_CONNECTION.get(cache_key)
-        if cached_data:
-            return Response(json.loads(cached_data))
-
-        # 缓存未命中，查询数据库
-        response = super().retrieve(request, *args, **kwargs)
-
-        # 存入缓存，设置过期时间10分钟
-        settings.REDIS_CONNECTION.setex(cache_key, 600, json.dumps(response.data))
-
-        return response
-
-    def create(self, request, *args, **kwargs):
-        """创建图书，清除相关缓存"""
-        response = super().create(request, *args, **kwargs)
-
-        # 清除列表缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:list")
-
-        return response
-
-    def update(self, request, *args, **kwargs):
-        """更新图书，清除相关缓存"""
-        book_id = kwargs.get('pk')
-        response = super().update(request, *args, **kwargs)
-
-        # 清除相关缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:list")
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:{book_id}")
-
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        """删除图书，清除相关缓存"""
-        book_id = kwargs.get('pk')
-        response = super().destroy(request, *args, **kwargs)
-
-        # 清除相关缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:list")
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:{book_id}")
-
-        return response
+        # 缓存结果，设置10分钟过期
+        cache.set(cache_key, queryset, 600)
+        return queryset
 
 
 class ReaderViewSet(viewsets.ModelViewSet):
-    """读者视图集，提供CRUD操作"""
+    """
+    读者视图集，提供读者的CRUD操作
+    """
     queryset = Reader.objects.all()
     serializer_class = ReaderSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'reader_id', 'email']
-    ordering_fields = ['name', 'registration_date']
-
-    def list(self, request, *args, **kwargs):
-        """列表查询，使用Redis缓存结果"""
-        cache_key = f"{CACHE_PREFIX}readers:list"
-
-        # 检查缓存
-        cached_data = settings.REDIS_CONNECTION.get(cache_key)
-        if cached_data:
-            return Response(json.loads(cached_data))
-
-        # 缓存未命中，查询数据库
-        response = super().list(request, *args, **kwargs)
-
-        # 存入缓存，设置过期时间10分钟
-        settings.REDIS_CONNECTION.setex(cache_key, 600, json.dumps(response.data))
-
-        return response
-
-    def retrieve(self, request, *args, **kwargs):
-        """详情查询，使用Redis缓存结果"""
-        reader_id = kwargs.get('pk')
-        cache_key = f"{CACHE_PREFIX}readers:{reader_id}"
-
-        # 检查缓存
-        cached_data = settings.REDIS_CONNECTION.get(cache_key)
-        if cached_data:
-            return Response(json.loads(cached_data))
-
-        # 缓存未命中，查询数据库
-        response = super().retrieve(request, *args, **kwargs)
-
-        # 存入缓存，设置过期时间10分钟
-        settings.REDIS_CONNECTION.setex(cache_key, 600, json.dumps(response.data))
-
-        return response
-
-    def create(self, request, *args, **kwargs):
-        """创建读者，清除相关缓存"""
-        response = super().create(request, *args, **kwargs)
-
-        # 清除列表缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}readers:list")
-
-        return response
-
-    def update(self, request, *args, **kwargs):
-        """更新读者，清除相关缓存"""
-        reader_id = kwargs.get('pk')
-        response = super().update(request, *args, **kwargs)
-
-        # 清除相关缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}readers:list")
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}readers:{reader_id}")
-
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        """删除读者，清除相关缓存"""
-        reader_id = kwargs.get('pk')
-        response = super().destroy(request, *args, **kwargs)
-
-        # 清除相关缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}readers:list")
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}readers:{reader_id}")
-
-        return response
+    filterset_fields = ['is_active']  # 支持按账号状态过滤
+    search_fields = ['name', 'reader_id', 'email']  # 支持按姓名、读者ID、邮箱搜索
+    ordering_fields = ['name', 'registration_date']  # 支持排序的字段
 
 
 class BorrowRecordViewSet(viewsets.ModelViewSet):
-    """借阅记录视图集，提供CRUD操作"""
+    """
+    借阅记录视图集，提供借阅记录的CRUD操作
+    额外提供还书功能
+    """
     queryset = BorrowRecord.objects.all()
     serializer_class = BorrowRecordSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['book', 'reader', 'return_date']
-    ordering_fields = ['borrow_date', 'due_date', 'return_date']
+    filterset_fields = ['book', 'reader', 'return_date']  # 支持过滤的字段
+    ordering_fields = ['borrow_date', 'due_date', 'return_date']  # 支持排序的字段
 
-    def create(self, request, *args, **kwargs):
-        """创建借阅记录，同时更新图书可借数量"""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def perform_create(self, serializer):
+        """
+        重写创建方法，处理借阅业务逻辑：
+        1. 创建借阅记录
+        2. 减少图书可借数量
+        """
+        # 保存借阅记录
+        borrow_record = serializer.save()
 
-        book_id = request.data.get('book')
-        try:
-            book = Book.objects.get(id=book_id)
+        # 获取对应的图书并减少可借数量
+        book = borrow_record.book
+        book.available_copies -= 1
+        book.save()
 
-            # 检查是否有可借副本
-            if book.available_copies <= 0:
-                return Response(
-                    {"error": "该图书已无可用副本"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # 减少可借数量
-            book.available_copies -= 1
-            book.save()
-
-            # 保存借阅记录
-            self.perform_create(serializer)
-
-            # 清除相关缓存
-            settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:list")
-            settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:{book_id}")
-
-            headers = self.get_success_headers(serializer.data)
-            return Response(
-                serializer.data,
-                status=status.HTTP_201_CREATED,
-                headers=headers
-            )
-
-        except Book.DoesNotExist:
-            return Response(
-                {"error": "图书不存在"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # 清除相关缓存，确保数据一致性
+        cache.delete_pattern("books_*")
 
     @action(detail=True, methods=['post'])
     def return_book(self, request, pk=None):
-        """处理还书操作"""
+        """
+        还书操作接口
+        路径: /api/borrows/{id}/return_book/
+        """
+        # 获取借阅记录
         borrow_record = self.get_object()
 
-        # 如果已经归还，返回错误
-        if borrow_record.return_date:
+        # 检查是否已经归还
+        if borrow_record.return_date is not None:
             return Response(
-                {"error": "该图书已归还"},
+                {"error": "这本书已经归还了"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 更新归还日期
-        from django.utils import timezone
-        borrow_record.return_date = timezone.now()
+        # 验证还书数据
+        serializer = BorrowReturnSerializer(
+            data=request.data,
+            context={'borrow_record': borrow_record}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        # 更新借阅记录的归还日期
+        borrow_record.return_date = serializer.validated_data['return_date']
         borrow_record.save()
 
-        # 增加可借数量
+        # 增加图书可借数量
         book = borrow_record.book
         book.available_copies += 1
         book.save()
 
         # 清除相关缓存
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:list")
-        settings.REDIS_CONNECTION.delete(f"{CACHE_PREFIX}books:{book.id}")
+        cache.delete_pattern("books_*")
 
         return Response({
             "message": "还书成功",
-            "data": self.get_serializer(borrow_record).data
+            "return_date": borrow_record.return_date
         })
