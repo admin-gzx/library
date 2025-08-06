@@ -13,22 +13,33 @@
 
     <!-- 配置Tailwind自定义颜色 -->
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#165DFF',
-                        secondary: '#36CFC9',
-                        accent: '#722ED1',
-                        neutral: '#86909C',
-                        'neutral-light': '#F2F3F5',
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'system-ui', 'sans-serif'],
-                    },
-                }
+        // 等待Tailwind加载完成
+        function initTailwindConfig() {
+            if (typeof tailwind !== 'undefined') {
+                tailwind.config = {
+                    theme: {
+                        extend: {
+                            colors: {
+                                primary: '#165DFF',
+                                secondary: '#36CFC9',
+                                accent: '#722ED1',
+                                neutral: '#86909C',
+                                'neutral-light': '#F2F3F5',
+                            },
+                            fontFamily: {
+                                sans: ['Inter', 'system-ui', 'sans-serif'],
+                            },
+                        }
+                    }
+                };
+            } else {
+                // 如果Tailwind尚未加载，延迟100毫秒后重试
+                setTimeout(initTailwindConfig, 100);
             }
         }
+
+        // 启动初始化
+        initTailwindConfig();
     </script>
 
     <style type="text/tailwindcss">

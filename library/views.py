@@ -1,4 +1,7 @@
 from rest_framework import viewsets, status, filters
+from django.shortcuts import render
+from django.http import HttpResponse
+import os
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -128,3 +131,17 @@ class BorrowRecordViewSet(viewsets.ModelViewSet):
             "message": "还书成功",
             "return_date": borrow_record.return_date
         })
+
+
+def home(request):
+    """
+    首页视图函数，提供前端index.html文件
+    """
+    # 获取index.html文件的绝对路径
+    index_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'index.html')
+    try:
+        with open(index_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return HttpResponse(content, content_type='text/html')
+    except FileNotFoundError:
+        return HttpResponse('index.html文件不存在', status=404)
